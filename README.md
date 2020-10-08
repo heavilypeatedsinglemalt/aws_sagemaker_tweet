@@ -9,8 +9,8 @@ The jupyter notebook can be run on AWS Sagemaker (as it also uses the Model API)
 
 The steps that are taken are as follows: 
 
-##1. Create an S3 bucket with a pickled python vanilla dictionary in it 
-##2. Upload model and training code to sagemaker vm 
-##3. Train the model 
-##4. Use the artifacts from the trained model that were stored on s3 to deploy a predictor that can classify sentences (disaster or not disaster) 
+## 1. Create an S3 bucket with a pickled python vanilla dictionary in it 
+## 2. Upload model and training code to sagemaker vm 
+## 3. Train the model 
+## 4. Use the artifacts from the trained model that were stored on s3 to deploy a predictor that can classify sentences (disaster or not disaster) 
 
