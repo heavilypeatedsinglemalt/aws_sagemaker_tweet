@@ -2,6 +2,15 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.keras.layers import Dense, LSTM, BatchNormalization, Conv1D
 from tensorflow.keras.layers import MaxPool1D
+"""
+A simple LSTM network for binary text classification 
+
+Can be served and is intended to be used in such a way to be used with tensorflow serving such that it accepts
+single sentences and produces a classification
+
+It stores word embeddings that have been provided to it in its constructor in a tensorflow servable form, so that 
+no artifacts need to be retrieved during serving, or through a separate endpoint
+"""
 class LSTMClassifier(tf.keras.Model):
     def _build_network(self):
         """
@@ -40,6 +49,15 @@ class LSTMClassifier(tf.keras.Model):
         model.build()
         self.model = model
     def _build_lookup_tables(self):
+        """
+        Takes arguments from the hyperparameters and word dict and builds up a vectorized representation that can be
+        saved for serving. modifies self.word_to_index, self.padding, self.word_vectors, self.pad_length
+
+        word_to_index is a lookup table with keys based on words in the word dictionary,
+         and values the index in the dict, so looking up a word gives an integer
+        padding is for sentences smaller than pad_length
+        word_vectors are the embeddings taken from the dictionary passed to the constructor
+        """
         pad_length = self.hyperparameters["pad_length"]
         word_dim = self.hyperparameters["word_dim"]
         word_dict = self.word_dict
@@ -53,6 +71,12 @@ class LSTMClassifier(tf.keras.Model):
         self.word_vectors = tf.constant(input_values, dtype=tf.double, shape=(len(input_values),word_dim))
         self.pad_length = pad_length
     def _convert_sentences_to_tensors(self,text_tensor):
+        """
+        Creates a ragged tensor, representing tokens of a string that has been processed with a regular expression:
+        [^A-Za-z ] (remove special/numeric chars), [^ ]*http[^ ]* (remove links)
+        :param text_tensor: string tensor
+        :return: ragged tensor of strings
+        """
         removal_non_char = tf.strings.regex_replace(input=text_tensor, pattern="[^A-Za-z ]", rewrite="")
         remove_links = tf.strings.regex_replace(input=removal_non_char, pattern="[^ ]*http[^ ]*", rewrite="")
         stripped_spaces = tf.strings.strip(remove_links)
@@ -60,6 +84,11 @@ class LSTMClassifier(tf.keras.Model):
         split_by_comma = tf.strings.split(input=replace_space_with_comma, sep=",")
         return split_by_comma
     def _convert_tensors_to_features(self, processed_text_tensor):
+        """
+        Takes a tokenized string ragged and converts it to an embedding taken from the word_dict passed to constructor
+        :param processed_text_tensor: tokenized string represented by a ragged tensor
+        :return:tensor of doubles reprensenting embeddings for every word in a sentence
+        """
         mapped_words_to_indexes = tf.ragged.map_flat_values(lambda value: self.word_to_index.lookup(value),
                                                             processed_text_tensor)
         mapped_words_to_indexes = mapped_words_to_indexes.to_tensor(default_value=0)
@@ -69,15 +98,31 @@ class LSTMClassifier(tf.keras.Model):
         embedding_sequences = tf.nn.embedding_lookup(self.word_vectors, sliced_index_sequences)
         return embedding_sequences
     def __init__(self,word_dict,hyperparameters):
+        """
+        :param word_dict: word dictionary, represented by python dict where strings are mapped to numpy arrays or 2d
+        :param hyperparameters: hyperparameters passed to training instance, including padding_length, word_dim
+        """
         super(LSTMClassifier, self).__init__()
         self.word_dict = word_dict
         self.hyperparameters = hyperparameters
         self._build_network()
         self._build_lookup_tables()
     def call(self, inputs):
+        """
+        applies the network to an embedding vector and produces a tensor of values representing probabilities
+        (for binary classification)
+        :param inputs: sentences of word embeddings
+        :return: tensor of probabilities, where each element is the probability corresponding to a sentence
+        """
         return self.model(inputs)
     @tf.function(input_signature=[tf.TensorSpec(shape=[1],dtype=tf.string)])
     def predict(self, stuff):
+        """
+        function to be used with tensor serving api, takes one dimensional array of strings representing a sentence
+        returns classification of sentence (disaster or non-disaster)
+        :param stuff: array of strings, converted to tensor of strings representing a sentence, or multiple sentences
+        :return: tensor of probabilties, where each probability corresponds to classification of sentence
+        """
         processed_text_tensor = self._convert_sentences_to_tensors(stuff)
         feature_vectors = self._convert_tensors_to_features(processed_text_tensor)
         return self(feature_vectors)
